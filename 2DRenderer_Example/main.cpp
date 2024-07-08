@@ -1,6 +1,8 @@
 #include <iostream>
 
+#include <RenderManager.h>
+
 int main()
 {
-    std::cout << "Hello World!\n";
+    RenderManager::GetInstance().Init();
 }
