@@ -1,6 +1,7 @@
 #pragma once
+#include "DLLCommon.h"
 
-struct Color
+struct RENDERER_API Color
 {
 public:
 	Color()

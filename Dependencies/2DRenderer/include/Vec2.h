@@ -1,6 +1,7 @@
 #pragma once
+#include "DLLCommon.h"
 
-struct Vec2
+struct RENDERER_API Vec2
 {
 public:
 	Vec2()
