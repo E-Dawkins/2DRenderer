@@ -22,11 +22,13 @@
     <ClInclude Include="Color.h" />
     <ClInclude Include="DLLCommon.h" />
     <ClInclude Include="RenderManager.h" />
+    <ClInclude Include="RenderObject.h" />
     <ClInclude Include="Vec2.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="glad.c" />
     <ClCompile Include="RenderManager.cpp" />
+    <ClCompile Include="RenderObject.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
