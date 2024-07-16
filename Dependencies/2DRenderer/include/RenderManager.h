@@ -5,6 +5,10 @@ struct GLFWwindow;
 
 class RENDERER_API RenderManager
 {
+protected:
+	RenderManager();
+	~RenderManager();
+
 public:
 	static RenderManager& GetInstance()
 	{
@@ -14,15 +18,18 @@ public:
 		return *mInstance;
 	}
 
-	void Init();
-	void Quit();
-
 	RenderManager(const RenderManager&) = delete;
 	RenderManager& operator=(const RenderManager&) = delete;
 
+	void Init();
+	void Quit();
+
 protected:
-	RenderManager();
-	~RenderManager();
+	void InitOpenGL();
+	void CreateGraphicObjects();
+	void LoadTexture();
+	
+	void RenderLoop();
 
 protected:
 	static RenderManager* mInstance;

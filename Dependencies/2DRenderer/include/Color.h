@@ -12,12 +12,12 @@ public:
 		a = 1.f;
 	}
 
-	Color(float _r, float _g, float _b, float _a)
+	Color(float _r, float _g, float _b, float _a, float _channelMax = 1.f)
 	{
-		r = _r;
-		g = _g;
-		b = _b;
-		a = _a;
+		r = _r / _channelMax;
+		g = _g / _channelMax;
+		b = _b / _channelMax;
+		a = _a / _channelMax;
 	}
 
 public:
