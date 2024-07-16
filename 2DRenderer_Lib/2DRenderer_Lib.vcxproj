@@ -19,16 +19,20 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ByteHelpers.h" />
     <ClInclude Include="Color.h" />
     <ClInclude Include="DLLCommon.h" />
+    <ClInclude Include="PNG.h" />
     <ClInclude Include="RenderManager.h" />
     <ClInclude Include="RenderObject.h" />
+    <ClInclude Include="Texture2D.h" />
     <ClInclude Include="Vec2.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="glad.c" />
+    <ClCompile Include="PNG.cpp" />
     <ClCompile Include="RenderManager.cpp" />
     <ClCompile Include="RenderObject.cpp" />
+    <ClCompile Include="Texture2D.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -133,14 +137,14 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependencies\GLAD\include\;$(SolutionDir)Dependencies\GLFW\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Dependencies\GLEW\include\;$(SolutionDir)Dependencies\GLFW\include\;$(SolutionDir)Dependencies\ZLib\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalLibraryDirectories>$(SolutionDir)Dependencies\GLFW\lib\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)Dependencies\GLEW\lib\;$(SolutionDir)Dependencies\GLFW\lib\;$(SolutionDir)Dependencies\ZLib\lib\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>opengl32.lib;glfw3.lib;glew32s.lib;zlibstat_d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>call CopyToDependencies.bat "$(Configuration)/$(TargetName)"</Command>
@@ -156,7 +160,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>$(SolutionDir)Dependencies\GLAD\include\;$(SolutionDir)Dependencies\GLFW\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Dependencies\GLEW\include\;$(SolutionDir)Dependencies\GLFW\include\;$(SolutionDir)Dependencies\ZLib\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -164,8 +168,8 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalLibraryDirectories>$(SolutionDir)Dependencies\GLFW\lib\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opengl32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)Dependencies\GLEW\lib\;$(SolutionDir)Dependencies\GLFW\lib\;$(SolutionDir)Dependencies\ZLib\lib\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>opengl32.lib;glfw3.lib;glew32s.lib;zlibstat.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>call CopyToDependencies.bat "$(Configuration)/$(TargetName)"</Command>
