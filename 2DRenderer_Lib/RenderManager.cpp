@@ -89,7 +89,7 @@ void RenderManager::InitOpenGL()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    mWindow = glfwCreateWindow(640, 480, "2D Renderer", NULL, NULL);
+    mWindow = glfwCreateWindow(640, 640, "2D Renderer", NULL, NULL);
     if (!mWindow)
     {
         glfwTerminate();
@@ -165,24 +165,18 @@ void RenderManager::LoadTexture()
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
 
-    const char* filePath = "";
-    std::srand((unsigned int)time(NULL));
-
-    switch (std::rand() % 3)
-    {
-        case 0: filePath = "./test1.png"; break;
-        case 1: filePath = "./test2.png"; break;
-        case 2: filePath = "./test3.png"; break;
-    }
-
-    Texture2D t = Texture2D(filePath);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t.mPNGProps.width, t.mPNGProps.height, 0, GL_RGBA, GL_FLOAT, t.mPNGProps.pixels);
+    Texture2D t = Texture2D("./PNGSuite/0-basic-formats/basn6a08.png");
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t.mPNGProps.width, t.mPNGProps.height, 0, GL_RGBA, GL_FLOAT, t.mPNGProps.pixels.data());
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Enable transparency
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void RenderManager::RenderLoop()

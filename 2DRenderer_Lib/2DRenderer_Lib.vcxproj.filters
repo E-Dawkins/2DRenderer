@@ -39,6 +39,9 @@
     <ClInclude Include="ByteHelpers.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="BitReader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="RenderManager.cpp">

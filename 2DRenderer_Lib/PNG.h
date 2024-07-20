@@ -16,16 +16,28 @@ protected:
 	bool CheckSignature(std::ifstream& _reader);
 	void Chunk_IHDR(std::ifstream& _reader);
 	void Chunk_PLTE(std::ifstream& _reader, unsigned int _chunkLength);
-	void Chunk_IDAT(std::ifstream& _reader, unsigned int _chunkLength);
-	void Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkLength);
+	void Chunk_IDAT(std::ifstream& _reader, unsigned int _chunkLength, std::vector<unsigned char>& _data);
+	void Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkLength, char* _chunkType);
 
 	// Assumes _chunkType is exactly 4-bytes.
 	bool IsAncillaryChunk(const char* _chunkType);
 
-	unsigned char Previous(unsigned int _byteIndex, unsigned int _scanlineLength, unsigned char* _pixelBuffer);
-	unsigned char Prior(unsigned int _byteIndex, unsigned int _scanlineLength, unsigned char* _pixelBuffer);
-	unsigned char PrevPrior(unsigned int _byteIndex, unsigned int _scanlineLength, unsigned char* _pixelBuffer);
-	unsigned char PaethPredictor(char _left, char _up, char _upLeft);
+	void DecodeIDATData(std::vector<unsigned char>& _rawIDATData);
+
+	// Decompresses concatenated IDAT data into an existing vector.
+	void DecompressIDATData(std::vector<unsigned char>& _compressedData, std::vector<unsigned char>& _decompressedData);
+
+	// Un-filters already decompressed IDAT data.
+	void UnfilterIDATData(std::vector<unsigned char>& _decompressedData);
+
+	// Reads decompressed, un-filtered IDAT data into desired pixel format.
+	void ReadIDATData(std::vector<unsigned char>& _unfiltered);
+
+	unsigned char Previous(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
+	unsigned char Prior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned char* _byteBuffer);
+	unsigned char PrevPrior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
+	unsigned char Paeth(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
+	unsigned char PaethPredictor(unsigned char _left, unsigned char _up, unsigned char _upLeft);
 
 public:
 	unsigned int width, height;
@@ -34,5 +46,5 @@ public:
 		filterMethod, interlaceMethod;
 
 	std::vector<Color> palette;
-	Color* pixels;
+	std::vector<Color> pixels;
 };

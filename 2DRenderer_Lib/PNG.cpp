@@ -1,7 +1,8 @@
 #include "PNG.h"
 
 #include "ByteHelpers.h"
-#include "gzguts.h" // TODO - replace with own decompressor?
+#include <gzguts.h> // TODO - replace with own decompressor?
+#include "BitReader.h"
 
 PNGProperties::PNGProperties()
 {
@@ -13,27 +14,36 @@ PNGProperties::PNGProperties()
 	filterMethod = 0;
 	interlaceMethod = 0;
 	palette = {};
-	pixels = nullptr;
+	pixels = {};
 }
 
 void PNGProperties::LoadPNG(const char* _filePath)
 {
 	std::ifstream reader = std::ifstream();
 	reader.open(_filePath, std::ios::in | std::ios::binary);
-	bool reading = true;
 
 	if (!reader.is_open())
 		return;
 
 	if (!CheckSignature(reader))
-		reading = false;
+	{
+		reader.close();
+		return;
+	}
+
+	bool reading = true;
+	std::vector<unsigned char> rawIDATData;
 
 	while (reading)
 	{
 		unsigned int chunkLength = R2D_BH::ReadBytesIntoUInt(reader, 4);
+		char* chunkType = R2D_BH::ReadBytesIntoStr(reader, 4);
 
-		char chunkType[4];
-		reader.read(chunkType, 4);
+		// We've read all IDAT chunks, now we need to decode the data
+		if (rawIDATData.size() != 0 && !R2D_BH::CompCharArrToStr(chunkType, "IDAT", 4))
+		{
+			DecodeIDATData(rawIDATData);
+		}
 
 		if (R2D_BH::CompCharArrToStr(chunkType, "IHDR", 4))
 		{
@@ -45,7 +55,7 @@ void PNGProperties::LoadPNG(const char* _filePath)
 		}
 		else if (R2D_BH::CompCharArrToStr(chunkType, "IDAT", 4))
 		{
-			Chunk_IDAT(reader, chunkLength);
+			Chunk_IDAT(reader, chunkLength, rawIDATData);
 		}
 		else if (R2D_BH::CompCharArrToStr(chunkType, "IEND", 4))
 		{
@@ -53,7 +63,7 @@ void PNGProperties::LoadPNG(const char* _filePath)
 		}
 		else if (IsAncillaryChunk(chunkType))
 		{
-			Chunk_Ancillary(reader, chunkLength);
+			Chunk_Ancillary(reader, chunkLength, chunkType);
 		}
 		else // found unknown critical chunk type, early exit reading
 		{
@@ -112,149 +122,52 @@ void PNGProperties::Chunk_PLTE(std::ifstream& _reader, unsigned int _chunkLength
 
 	for (unsigned int i = 0; i < _chunkLength / 3; i++)
 	{
-		unsigned char r, g, b;
+		unsigned char r = 0, g = 0, b = 0;
 
 		_reader.read((char*)&r, 1);
 		_reader.read((char*)&g, 1);
 		_reader.read((char*)&b, 1);
 
-		palette.push_back(Color(r / 255.f, g / 255.f, b / 255.f, 1));
-	}
-}
-#include <iostream>
-void PNGProperties::Chunk_IDAT(std::ifstream& _reader, unsigned int _chunkLength)
-{
-	char* data = new char[_chunkLength];
-	_reader.read(data, _chunkLength);
-
-	constexpr char channels[7] = { 1, 0, 3, 1, 2, 0, 4 };
-
-	unsigned int bitsPerSample = bitDepth * channels[colourType];
-	unsigned int decompBytes = (unsigned int)((width * height) / (8.0 / bitsPerSample)) + height;
-
-	unsigned int scanlineLength = (decompBytes / width); // includes filter byte
-
-	unsigned char* imageData = new unsigned char[decompBytes];
-
-	z_stream infStream = {};
-	infStream.zalloc = Z_NULL;
-	infStream.zfree = Z_NULL;
-	infStream.opaque = Z_NULL;
-	inflateInit(&infStream);
-
-	infStream.avail_in = _chunkLength;
-	infStream.next_in = (Bytef*)data;
-
-	infStream.avail_out = decompBytes;
-	infStream.next_out = (Bytef*)imageData;
-
-	int response = inflate(&infStream, Z_NO_FLUSH);
-	inflateEnd(&infStream);
-
-	for (unsigned int i = 0; i < height; i++)
-	{
-		unsigned int scanlineNum = i * scanlineLength;
-		char filterMethod = imageData[scanlineNum];
-
-		if (filterMethod == 0) continue; // no filter method, skip this scanline
-
-		for (unsigned int j = 0; j < scanlineLength - 1; j++)
-		{
-			unsigned int byteIndex = scanlineNum + j + 1;
-
-			if (byteIndex >= decompBytes) continue;
-
-			unsigned char byte = imageData[byteIndex];
-
-			switch (filterMethod) // SUB, UP, AVERAGE, PAETH
-			{
-				case 1: imageData[byteIndex] = byte + Previous(byteIndex, scanlineLength, imageData); break;
-				case 2: imageData[byteIndex] = byte + Prior(byteIndex, scanlineLength, imageData); break;
-				case 3: imageData[byteIndex] = byte + (unsigned char)floor((Previous(byteIndex, scanlineLength, imageData) + Prior(byteIndex, scanlineLength, imageData)) / 2); break;
-				case 4: imageData[byteIndex] = byte + PaethPredictor(Previous(byteIndex, scanlineLength, imageData), Prior(byteIndex, scanlineLength, imageData), PrevPrior(byteIndex, scanlineLength, imageData)); break;
-			}
-		}
-	}
-
-	unsigned int samplesPerByte = 8 / bitDepth; // this will currently skip 16-bit encoded PNG's
-	unsigned int bitMask = (1 << bitDepth) - 1;
-	float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
-
-	pixels = new Color[width * height];
-	unsigned int pixelIndex = 0;
-
-	for (unsigned int i = 0; i < decompBytes - height; i++) // loop over all 'pixels'
-	{
-		unsigned int scanlineNum = i / (scanlineLength - 1);
-		unsigned int byteIndex = i + scanlineNum + 1;
-
-		if (byteIndex >= decompBytes) continue;
-
-		unsigned char byte = imageData[byteIndex];
-
-		for (unsigned int j = 0; j < samplesPerByte; j++, pixelIndex++) // loop over all samples within each byte
-		{
-			switch (colourType)
-			{
-				case 0: // grayscale
-				{
-					float grayscaleVal = (float)(byte & bitMask);
-					pixels[pixelIndex] = Color(grayscaleVal, grayscaleVal, grayscaleVal, 1, sampleMax);
-
-					break;
-				}
-				
-				case 2: // RGB
-				{
-					float r = byte;
-					float g = imageData[byteIndex + 1];
-					float b = imageData[byteIndex + 2];
-
-					pixels[pixelIndex] = Color(r, g, b, 1, sampleMax);
-					i += 2;
-
-					break;
-				}
-
-				case 3: // indexed
-				{
-					unsigned int paletteIndex = (byte >> j) & bitMask;
-					pixels[pixelIndex] = palette[paletteIndex];
-
-					break;
-				}
-
-				case 4: // grayscale + alpha
-				{
-					float gray = byte;
-					float alpha = imageData[byteIndex + 1];
-
-					pixels[pixelIndex] = Color(gray, gray, gray, alpha, sampleMax);
-					i += 1;
-
-					break;
-				}
-
-				case 6: // RGB + alpha
-				{
-					float r = byte;
-					float g = imageData[byteIndex + 1];
-					float b = imageData[byteIndex + 2];
-					float a = imageData[byteIndex + 3];
-
-					pixels[pixelIndex] = Color(r, g, b, a, sampleMax);
-					i += 3;
-
-					break;
-				}
-			}
-		}
+		palette.push_back(Color(r, g, b, 1, 255.f));
 	}
 }
 
-void PNGProperties::Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkLength)
+void PNGProperties::Chunk_IDAT(std::ifstream& _reader, unsigned int _chunkLength, std::vector<unsigned char>& _data)
 {
-	_reader.seekg(_reader.tellg() + (std::streampos)_chunkLength);
+	unsigned char* data = new unsigned char[_chunkLength];
+	_reader.read((char*)data, _chunkLength);
+
+	_data.insert(_data.end(), data, data + _chunkLength);
+}
+
+void PNGProperties::Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkLength, char* _chunkType)
+{
+	if (R2D_BH::CompCharArrToStr(_chunkType, "sRGB", 4))
+	{
+		unsigned char colourSpace = '\0';
+		_reader.read((char*)&colourSpace, 1);
+		int a = 4;
+	}
+	else if (R2D_BH::CompCharArrToStr(_chunkType, "gAMA", 4))
+	{
+		std::uint32_t gammaRaw = 0;
+		_reader.read((char*)&gammaRaw, 4);
+
+		float gamma = (float)gammaRaw / 100000.f;
+	}
+	else if (R2D_BH::CompCharArrToStr(_chunkType, "pHYs", 4))
+	{
+		std::uint32_t ppuX = 0, ppuY = 0;
+		unsigned char unitSpecifier = '\0';
+
+		_reader.read((char*)&ppuX, 4);
+		_reader.read((char*)&ppuY, 4);
+		_reader.read((char*)&unitSpecifier, 1);
+	}
+	else
+	{
+		_reader.seekg(_reader.tellg() + (std::streampos)_chunkLength);
+	}
 }
 
 bool PNGProperties::IsAncillaryChunk(const char* _chunkType)
@@ -262,33 +175,196 @@ bool PNGProperties::IsAncillaryChunk(const char* _chunkType)
 	return (_chunkType[0] & 0b100000) != 0;
 }
 
-unsigned char PNGProperties::Previous(unsigned int _byteIndex, unsigned int _scanlineLength, unsigned char* _pixelBuffer)
+void PNGProperties::DecodeIDATData(std::vector<unsigned char>& _rawIDATData)
 {
-	int prevIndex = _byteIndex - 1;
-	return ((prevIndex % _scanlineLength == 0) ? 0 : _pixelBuffer[prevIndex]);
+	std::vector<unsigned char> decodedIDATData;
+
+	DecompressIDATData(_rawIDATData, decodedIDATData);
+	UnfilterIDATData(decodedIDATData);
+	ReadIDATData(decodedIDATData);
 }
 
-unsigned char PNGProperties::Prior(unsigned int _byteIndex, unsigned int _scanlineLength, unsigned char* _pixelBuffer)
+void PNGProperties::DecompressIDATData(std::vector<unsigned char>& _compressedData, std::vector<unsigned char>& _decompressedData)
 {
-	int priorIndex = _byteIndex - _scanlineLength;
-	return (priorIndex < 0 ? 0 : _pixelBuffer[priorIndex]);
+	const size_t CHUNK_SIZE = 4096;
+	unsigned char out[CHUNK_SIZE] = {};
+
+	z_stream strm = {};
+	strm.zalloc = Z_NULL;
+	strm.zfree = Z_NULL;
+	strm.opaque = Z_NULL;
+	strm.avail_in = (unsigned int)_compressedData.size();
+	strm.next_in = (Bytef*)_compressedData.data();
+
+	if (inflateInit(&strm) != Z_OK) {
+		throw std::runtime_error("Failed to initialize inflate");
+	}
+
+	int result;
+	do 
+	{
+		strm.avail_out = CHUNK_SIZE;
+		strm.next_out = (Bytef*)out;
+		result = inflate(&strm, Z_NO_FLUSH);
+
+		if (result == Z_STREAM_ERROR) 
+		{
+			inflateEnd(&strm);
+			perror("ZLib stream error during inflation of IDAT PNG data!");
+			return;
+		}
+
+		size_t have = CHUNK_SIZE - strm.avail_out;
+		_decompressedData.insert(_decompressedData.end(), out, out + have);
+
+	} while (result != Z_STREAM_END);
+
+	inflateEnd(&strm);
+
+	if (result != Z_STREAM_END)
+	{
+		perror("Failed to decompress all IDAT PNG data!");
+		return;
+	}
 }
 
-unsigned char PNGProperties::PrevPrior(unsigned int _byteIndex, unsigned int _scanlineLength, unsigned char* _pixelBuffer)
+void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedData)
 {
-	int priorIndex = _byteIndex - _scanlineLength;
-	if (priorIndex < 0) return 0;
+	constexpr char channels[7] = { 1, 0, 3, 1, 2, 0, 4 };
 
-	int prevIndex = priorIndex - 1;
-	return ((prevIndex % _scanlineLength == 0) ? 0 : _pixelBuffer[prevIndex]);
+	double bytesPerPixel = (double)(bitDepth * channels[colourType]) / 8.0;
+	unsigned int stride = (unsigned int)(width * bytesPerPixel);
+
+	for (unsigned int _scanlineNum = 0, i = 0; _scanlineNum < height; _scanlineNum++)
+	{
+		char filterMethod = _decompressedData[i];
+		_decompressedData.erase(_decompressedData.begin() + i); // remove filter byte from data, not needed after this point
+
+		for (unsigned int _posInScanline = 0; _posInScanline < stride; _posInScanline++)
+		{
+			unsigned short byte = (unsigned short)_decompressedData[i];
+
+			switch (filterMethod)
+			{
+				case 0: break;
+				case 1: byte += Previous(_scanlineNum, stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+				case 2: byte += Prior(_scanlineNum, stride, _posInScanline, _decompressedData.data()); break;
+				case 3: byte += PrevPrior(_scanlineNum, stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+				case 4: byte += Paeth(_scanlineNum, stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+			}
+
+			_decompressedData[i++] = byte % 256; // keep in byte format
+		}
+	}
 }
 
-unsigned char PNGProperties::PaethPredictor(char _left, char _up, char _upLeft)
+void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 {
-	char p = _left + _up - _upLeft;		// initial estimate
-	char pa = abs(p - _left);			// distances to a, b, c
-	char pb = abs(p - _up);
-	char pc = abs(p - _upLeft);
+	BitReader br = BitReader(_unfiltered.data());
+	pixels.resize((size_t)(width * height));
+	float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
+
+	for (unsigned int i = 0; i < width * height; i++) // fill the pixel data
+	{
+		switch (colourType)
+		{
+		case 0: // grayscale
+		{
+			float g = (float)br.ReadBits(bitDepth);
+
+			pixels[i] = Color(g, g, g, sampleMax, sampleMax);
+			break;
+		}
+
+		case 2: // RGB
+		{
+			float r = (float)br.ReadBits(bitDepth);
+			float g = (float)br.ReadBits(bitDepth);
+			float b = (float)br.ReadBits(bitDepth);
+
+			pixels[i] = Color(r, g, b, sampleMax, sampleMax);
+			break;
+		}
+
+		case 3: // indexed
+		{
+			unsigned int paletteIndex = (unsigned int)br.ReadBits(bitDepth);
+
+			pixels[i] = palette[paletteIndex];
+			break;
+		}
+
+		case 4: // grayscale + alpha
+		{
+			float g = (float)br.ReadBits(bitDepth);
+			float a = (float)br.ReadBits(bitDepth);
+
+			pixels[i] = Color(g, g, g, a, sampleMax);
+			break;
+		}
+
+		case 6: // RGB + alpha
+		{
+			float r = (float)br.ReadBits(bitDepth);
+			float g = (float)br.ReadBits(bitDepth);
+			float b = (float)br.ReadBits(bitDepth);
+			float a = (float)br.ReadBits(bitDepth);
+
+			pixels[i] = Color(r, g, b, a, sampleMax);
+			break;
+		}
+		}
+	}
+}
+
+unsigned char PNGProperties::Previous(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
+{
+	if (_posInScanline >= _bytesPerPixel)
+	{
+		unsigned int index = _scanlineNum * _stride + _posInScanline - _bytesPerPixel;
+		return _byteBuffer[index];
+	}
+
+	return 0;
+}
+
+unsigned char PNGProperties::Prior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned char* _byteBuffer)
+{
+	if (_scanlineNum > 0)
+	{
+		unsigned int index = (_scanlineNum - 1) * _stride + _posInScanline;
+		return _byteBuffer[index];
+	}
+
+	return 0;
+}
+
+unsigned char PNGProperties::PrevPrior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
+{
+	if (_scanlineNum > 0 && _posInScanline >= _bytesPerPixel)
+	{
+		unsigned int index = (_scanlineNum - 1) * _stride + _posInScanline - _bytesPerPixel;
+		return _byteBuffer[index];
+	}
+
+	return 0;
+}
+
+unsigned char PNGProperties::Paeth(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
+{
+	unsigned char left = Previous(_scanlineNum, _stride, _posInScanline, _bytesPerPixel, _byteBuffer);
+	unsigned char up = Prior(_scanlineNum, _stride, _posInScanline, _byteBuffer);
+	unsigned char upLeft = PrevPrior(_scanlineNum, _stride, _posInScanline, _bytesPerPixel, _byteBuffer);
+
+	return PaethPredictor(left, up, upLeft);
+}
+
+unsigned char PNGProperties::PaethPredictor(unsigned char _left, unsigned char _up, unsigned char _upLeft)
+{
+	unsigned short p = (unsigned short)std::fmax(_left + _up - _upLeft, 0);		// initial estimate
+	unsigned short pa = abs(p - _left);				// distances to a, b, c
+	unsigned short pb = abs(p - _up);
+	unsigned short pc = abs(p - _upLeft);
 
 	// Return minimum distance
 	if (pa <= pb && pa <= pc) return _left;
