@@ -8,7 +8,7 @@ IF NOT EXIST "../Dependencies/2DRenderer/" (
 )
 
 cd ../Dependencies/2DRenderer/
-del * /S /Q
+del * /S /Q >nul
 
 :: Re-direct back to the script folder
 IF NOT EXIST "../../2DRenderer_Lib/" (
@@ -20,16 +20,16 @@ IF NOT EXIST "../../2DRenderer_Lib/" (
 cd ../../2DRenderer_Lib/
 
 :: Copy all header files into include directory
-echo f | xcopy /f /y /s "./*.h" "../Dependencies/2DRenderer/include/"
+echo f | xcopy /f /y /s "./*.h" "../Dependencies/2DRenderer/include/" >nul
 
 :: Copy *.lib file to lib directory
 IF EXIST "./x64/2DRenderer_Lib/%1.lib" (
-	echo f | xcopy /f /y /s "./x64/2DRenderer_Lib/%1.lib" "../Dependencies/2DRenderer/lib/"
+	echo f | xcopy /f /y /s "./x64/2DRenderer_Lib/%1.lib" "../Dependencies/2DRenderer/lib/" >nul
 ) ELSE Echo %1.lib does not exist
 
 :: Copy *.dll file to lib directory
 IF EXIST "./x64/2DRenderer_Lib/%1.lib" (
-	echo f | xcopy /f /y /s "./x64/2DRenderer_Lib/%1.dll" "../Dependencies/2DRenderer/lib/"
+	echo f | xcopy /f /y /s "./x64/2DRenderer_Lib/%1.dll" "../Dependencies/2DRenderer/lib/" >nul
 ) ELSE Echo %1.dll does not exist
 
 pause
