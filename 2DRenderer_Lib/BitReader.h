@@ -35,6 +35,12 @@ public:
 		return out;
 	}
 
+	// Finish reading current byte and skip to next.
+	void NextByte()
+	{
+		ReadBits(8 - mBitCount);
+	}
+
 protected:
 	unsigned char* mData;
 	unsigned int mPos;

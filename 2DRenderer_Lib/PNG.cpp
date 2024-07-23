@@ -128,7 +128,7 @@ void PNGProperties::Chunk_PLTE(std::ifstream& _reader, unsigned int _chunkLength
 		_reader.read((char*)&g, 1);
 		_reader.read((char*)&b, 1);
 
-		palette.push_back(Color(r, g, b, 1, 255.f));
+		palette.push_back(Color(r, g, b, 255, 255));
 	}
 }
 
@@ -233,7 +233,7 @@ void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedDa
 	constexpr char channels[7] = { 1, 0, 3, 1, 2, 0, 4 };
 
 	double bytesPerPixel = (double)(bitDepth * channels[colourType]) / 8.0;
-	unsigned int stride = (unsigned int)(width * bytesPerPixel);
+	double stride = (double)width * bytesPerPixel;
 
 	for (unsigned int _scanlineNum = 0, i = 0; _scanlineNum < height; _scanlineNum++)
 	{
@@ -247,10 +247,10 @@ void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedDa
 			switch (filterMethod)
 			{
 				case 0: break;
-				case 1: byte += Previous(_scanlineNum, stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
-				case 2: byte += Prior(_scanlineNum, stride, _posInScanline, _decompressedData.data()); break;
-				case 3: byte += PrevPrior(_scanlineNum, stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
-				case 4: byte += Paeth(_scanlineNum, stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+				case 1: byte += Previous(_scanlineNum, (unsigned int)stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+				case 2: byte += Prior(_scanlineNum, (unsigned int)stride, _posInScanline, _decompressedData.data()); break;
+				case 3: byte += PrevPrior(_scanlineNum, (unsigned int)stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+				case 4: byte += Paeth(_scanlineNum, (unsigned int)stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
 			}
 
 			_decompressedData[i++] = byte % 256; // keep in byte format
@@ -266,6 +266,11 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 
 	for (unsigned int i = 0; i < width * height; i++) // fill the pixel data
 	{
+		if (i != 0 && i % width == 0) // this is a failsafe if a scanline doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
+		{
+			br.NextByte();
+		}
+
 		switch (colourType)
 		{
 		case 0: // grayscale
