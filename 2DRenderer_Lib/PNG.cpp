@@ -15,6 +15,8 @@ PNGProperties::PNGProperties()
 	interlaceMethod = 0;
 	palette = {};
 	pixels = {};
+	backgroundColor = Color(0, 0, 0, 0);
+	trnsColor = Color(-1, -1, -1, -1);
 }
 
 void PNGProperties::LoadPNG(const char* _filePath)
@@ -146,7 +148,6 @@ void PNGProperties::Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkL
 	{
 		unsigned char colourSpace = '\0';
 		_reader.read((char*)&colourSpace, 1);
-		int a = 4;
 	}
 	else if (R2D_BH::CompCharArrToStr(_chunkType, "gAMA", 4))
 	{
@@ -163,6 +164,97 @@ void PNGProperties::Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkL
 		_reader.read((char*)&ppuX, 4);
 		_reader.read((char*)&ppuY, 4);
 		_reader.read((char*)&unitSpecifier, 1);
+	}
+	else if (R2D_BH::CompCharArrToStr(_chunkType, "bKGD", 4))
+	{
+		float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
+
+		switch (colourType)
+		{
+			case 3: // indexed
+			{
+				unsigned char paletteIndex;
+				_reader.read((char*)&paletteIndex, 1);
+
+				backgroundColor = palette[paletteIndex];
+
+				break;
+			}
+
+			case 0: // grayscale, with or without alpha
+			case 4:
+			{
+				unsigned short g;
+				_reader.read((char*)&g, 2);
+
+				backgroundColor = Color(g, g, g, sampleMax, sampleMax);
+
+				break;
+			}
+
+			case 2: // rgb, with or without alpha
+			case 6:
+			{
+				unsigned short r, g, b;
+				_reader.read((char*)&r, 2);
+				_reader.read((char*)&g, 2);
+				_reader.read((char*)&b, 2);
+
+				backgroundColor = Color(r, g, b, sampleMax, sampleMax);
+
+				break;
+			}
+		}
+	}
+	else if (R2D_BH::CompCharArrToStr(_chunkType, "tRNS", 4))
+	{
+		float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
+
+		switch (colourType)
+		{
+			case 0: // grayscale
+			{
+				unsigned short g;
+				_reader.read((char*)&g, 2);
+
+				trnsColor = Color(g, g, g, -sampleMax, sampleMax);
+
+				break;
+			}
+
+			case 2: // rgb
+			{
+				unsigned short r, g, b;
+				_reader.read((char*)&r, 2);
+				_reader.read((char*)&g, 2);
+				_reader.read((char*)&b, 2);
+
+				trnsColor = Color(r, g, b, -sampleMax, sampleMax);
+
+				break;
+			}
+
+			case 3: // indexed
+			{
+				for (unsigned int i = 0; i < _chunkLength; i++)
+				{
+					unsigned char alpha;
+					_reader.read((char*)&alpha, 1);
+
+					palette[i].a = (float)alpha / 255.f;
+				}
+
+				break;
+			}
+
+			case 4: // these colour types already contain full alpha channels
+			case 6:
+			{
+				perror("tRNS chunk in PNG file is prohibited for current colour type!");
+
+				break;
+			}
+		}
 	}
 	else
 	{
@@ -235,6 +327,8 @@ void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedDa
 	double bytesPerPixel = (double)(bitDepth * channels[colourType]) / 8.0;
 	double stride = (double)width * bytesPerPixel;
 
+	unsigned int offsetBytesPerPixel = (unsigned int)std::fmax(bytesPerPixel, 1); // minimum 1 byte offset
+
 	for (unsigned int _scanlineNum = 0, i = 0; _scanlineNum < height; _scanlineNum++)
 	{
 		char filterMethod = _decompressedData[i];
@@ -247,10 +341,10 @@ void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedDa
 			switch (filterMethod)
 			{
 				case 0: break;
-				case 1: byte += Previous(_scanlineNum, (unsigned int)stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+				case 1: byte += Previous(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
 				case 2: byte += Prior(_scanlineNum, (unsigned int)stride, _posInScanline, _decompressedData.data()); break;
-				case 3: byte += PrevPrior(_scanlineNum, (unsigned int)stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
-				case 4: byte += Paeth(_scanlineNum, (unsigned int)stride, _posInScanline, (unsigned int)bytesPerPixel, _decompressedData.data()); break;
+				case 3: byte += PrevPrior(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
+				case 4: byte += Paeth(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
 			}
 
 			_decompressedData[i++] = byte % 256; // keep in byte format
@@ -273,52 +367,54 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 
 		switch (colourType)
 		{
-		case 0: // grayscale
-		{
-			float g = (float)br.ReadBits(bitDepth);
+			case 0: // grayscale
+			{
+				float g = (float)br.ReadBits(bitDepth);
 
-			pixels[i] = Color(g, g, g, sampleMax, sampleMax);
-			break;
+				pixels[i] = Color(g, g, g, sampleMax, sampleMax);
+				break;
+			}
+
+			case 2: // RGB
+			{
+				float r = (float)br.ReadBits(bitDepth);
+				float g = (float)br.ReadBits(bitDepth);
+				float b = (float)br.ReadBits(bitDepth);
+
+				pixels[i] = Color(r, g, b, sampleMax, sampleMax);
+				break;
+			}
+
+			case 3: // indexed
+			{
+				unsigned int paletteIndex = (unsigned int)br.ReadBits(bitDepth);
+
+				pixels[i] = palette[paletteIndex];
+				break;
+			}
+
+			case 4: // grayscale + alpha
+			{
+				float g = (float)br.ReadBits(bitDepth);
+				float a = (float)br.ReadBits(bitDepth);
+
+				pixels[i] = Color(g, g, g, a, sampleMax);
+				break;
+			}
+
+			case 6: // RGB + alpha
+			{
+				float r = (float)br.ReadBits(bitDepth);
+				float g = (float)br.ReadBits(bitDepth);
+				float b = (float)br.ReadBits(bitDepth);
+				float a = (float)br.ReadBits(bitDepth);
+
+				pixels[i] = Color(r, g, b, a, sampleMax);
+				break;
+			}
 		}
 
-		case 2: // RGB
-		{
-			float r = (float)br.ReadBits(bitDepth);
-			float g = (float)br.ReadBits(bitDepth);
-			float b = (float)br.ReadBits(bitDepth);
-
-			pixels[i] = Color(r, g, b, sampleMax, sampleMax);
-			break;
-		}
-
-		case 3: // indexed
-		{
-			unsigned int paletteIndex = (unsigned int)br.ReadBits(bitDepth);
-
-			pixels[i] = palette[paletteIndex];
-			break;
-		}
-
-		case 4: // grayscale + alpha
-		{
-			float g = (float)br.ReadBits(bitDepth);
-			float a = (float)br.ReadBits(bitDepth);
-
-			pixels[i] = Color(g, g, g, a, sampleMax);
-			break;
-		}
-
-		case 6: // RGB + alpha
-		{
-			float r = (float)br.ReadBits(bitDepth);
-			float g = (float)br.ReadBits(bitDepth);
-			float b = (float)br.ReadBits(bitDepth);
-			float a = (float)br.ReadBits(bitDepth);
-
-			pixels[i] = Color(r, g, b, a, sampleMax);
-			break;
-		}
-		}
+		CheckTRNS(pixels[i]);
 	}
 }
 
@@ -375,4 +471,30 @@ unsigned char PNGProperties::PaethPredictor(unsigned char _left, unsigned char _
 	if (pa <= pb && pa <= pc) return _left;
 	else if (pb <= pc) return _up;
 	return _upLeft;
+}
+
+void PNGProperties::CheckTRNS(Color& _color)
+{
+	switch (colourType)
+	{
+		case 0: // grayscale
+		{
+			if (_color.r == trnsColor.r)
+			{
+				_color.a = 0;
+			}
+
+			break;
+		}
+
+		case 2: // rgb
+		{
+			if (Color::EqualRGB(_color, trnsColor))
+			{
+				_color.a = 0;
+			}
+
+			break;
+		}
+	}
 }

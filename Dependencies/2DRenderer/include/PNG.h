@@ -39,6 +39,9 @@ protected:
 	unsigned char Paeth(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
 	unsigned char PaethPredictor(unsigned char _left, unsigned char _up, unsigned char _upLeft);
 
+	// Any pixel that matches the TRNS color should be treated as fully transparent.
+	void CheckTRNS(Color& _color);
+
 public:
 	unsigned int width, height;
 
@@ -47,4 +50,7 @@ public:
 
 	std::vector<Color> palette;
 	std::vector<Color> pixels;
+
+	Color backgroundColor;
+	Color trnsColor;
 };
