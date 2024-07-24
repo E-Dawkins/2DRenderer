@@ -43,4 +43,25 @@ public:
 
 		return str;
 	}
+
+	static bool IsLittleEndian()
+	{
+		unsigned int x = 1;
+		char* c = (char*)&x;
+
+		return (*c);
+	}
+
+	static std::uint32_t ToBigEndian(std::uint32_t _value)
+	{
+		if (IsLittleEndian())
+		{
+			return ((_value >> 24) & 0x000000FF) |
+				((_value >> 8) & 0x0000FF00) |
+				((_value << 8) & 0x00FF0000) |
+				((_value << 24) & 0xFF000000);
+		}
+		
+		return _value;
+	}
 };

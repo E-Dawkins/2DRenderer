@@ -154,7 +154,7 @@ void PNGProperties::Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkL
 		std::uint32_t gammaRaw = 0;
 		_reader.read((char*)&gammaRaw, 4);
 
-		float gamma = (float)gammaRaw / 100000.f;
+		gamma = (float)R2D_BH::ToBigEndian(gammaRaw) / 100000.f;
 	}
 	else if (R2D_BH::CompCharArrToStr(_chunkType, "pHYs", 4))
 	{

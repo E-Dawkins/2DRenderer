@@ -53,4 +53,6 @@ public:
 
 	Color backgroundColor;
 	Color trnsColor;
+
+	float gamma;
 };

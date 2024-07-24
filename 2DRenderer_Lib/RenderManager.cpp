@@ -27,9 +27,12 @@ static const GLchar* fragmentSource = R"glsl(
     in vec2 Texcoord;
     out vec4 outColor;
     uniform sampler2D tex;
+    uniform float gamma;
     void main()
     {
-        outColor = texture(tex, Texcoord);
+        vec3 color = texture(tex, Texcoord).rgb;
+        color = pow(color, vec3(1.0 / gamma));
+        outColor = vec4(color, 1.0);
     }
 )glsl";
 
@@ -51,6 +54,7 @@ RenderManager* RenderManager::mInstance = nullptr;
 RenderManager::RenderManager()
 {
     mWindow = nullptr;
+    mShaderProgram = 0;
 }
 
 RenderManager::~RenderManager()
@@ -135,25 +139,25 @@ void RenderManager::CreateGraphicObjects()
     glCompileShader(fragmentShader);
 
     // Link the vertex & fragment shader into a shader program
-    GLuint shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glBindFragDataLocation(shaderProgram, 0, "outColor");
-    glLinkProgram(shaderProgram);
-    glUseProgram(shaderProgram);
+    mShaderProgram = glCreateProgram();
+    glAttachShader(mShaderProgram, vertexShader);
+    glAttachShader(mShaderProgram, fragmentShader);
+    glBindFragDataLocation(mShaderProgram, 0, "outColor");
+    glLinkProgram(mShaderProgram);
+    glUseProgram(mShaderProgram);
 
     // Specify the layout of the vertex data
     constexpr int vertDataSize = 7 * sizeof(GLfloat);
 
-    GLint posAttrib = glGetAttribLocation(shaderProgram, "position");
+    GLint posAttrib = glGetAttribLocation(mShaderProgram, "position");
     glEnableVertexAttribArray(posAttrib);
     glVertexAttribPointer(posAttrib, 2, GL_FLOAT, GL_FALSE, vertDataSize, 0);
 
-    GLint colAttrib = glGetAttribLocation(shaderProgram, "color");
+    GLint colAttrib = glGetAttribLocation(mShaderProgram, "color");
     glEnableVertexAttribArray(colAttrib);
     glVertexAttribPointer(colAttrib, 3, GL_FLOAT, GL_FALSE, vertDataSize, (void*)(2 * sizeof(GLfloat)));
 
-    GLint texAttrib = glGetAttribLocation(shaderProgram, "texcoord");
+    GLint texAttrib = glGetAttribLocation(mShaderProgram, "texcoord");
     glEnableVertexAttribArray(texAttrib);
     glVertexAttribPointer(texAttrib, 2, GL_FLOAT, GL_FALSE, vertDataSize, (void*)(5 * sizeof(GLfloat)));
 }
@@ -165,7 +169,7 @@ void RenderManager::LoadTexture()
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
 
-    Texture2D t = Texture2D("./PNGSuite/5-transparency/tp1n3p08.png");
+    Texture2D t = Texture2D("./PNGSuite/6-gamma-values/g05n2c08.png");
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t.mPNGProps.width, t.mPNGProps.height, 0, GL_RGBA, GL_FLOAT, t.mPNGProps.pixels.data());
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -177,6 +181,10 @@ void RenderManager::LoadTexture()
     // Enable transparency
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Bind gamma value
+    GLint gammaLocation = glGetUniformLocation(mShaderProgram, "gamma");
+    glUniform1f(gammaLocation, t.mPNGProps.gamma);
 }
 
 void RenderManager::RenderLoop()

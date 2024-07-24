@@ -35,5 +35,7 @@ protected:
 	static RenderManager* mInstance;
 
 	GLFWwindow* mWindow;
+
+	unsigned int mShaderProgram;
 };
 
