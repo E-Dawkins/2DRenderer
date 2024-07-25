@@ -35,6 +35,7 @@ protected:
 
 	unsigned char Previous(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
 	unsigned char Prior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned char* _byteBuffer);
+	unsigned char Average(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
 	unsigned char PrevPrior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
 	unsigned char Paeth(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer);
 	unsigned char PaethPredictor(unsigned char _left, unsigned char _up, unsigned char _upLeft);

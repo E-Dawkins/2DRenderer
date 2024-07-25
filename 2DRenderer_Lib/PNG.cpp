@@ -17,6 +17,7 @@ PNGProperties::PNGProperties()
 	pixels = {};
 	backgroundColor = Color(0, 0, 0, 0);
 	trnsColor = Color(-1, -1, -1, -1);
+	gamma = 1.f;
 }
 
 void PNGProperties::LoadPNG(const char* _filePath)
@@ -343,7 +344,7 @@ void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedDa
 				case 0: break;
 				case 1: byte += Previous(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
 				case 2: byte += Prior(_scanlineNum, (unsigned int)stride, _posInScanline, _decompressedData.data()); break;
-				case 3: byte += PrevPrior(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
+				case 3: byte += Average(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
 				case 4: byte += Paeth(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
 			}
 
@@ -438,6 +439,14 @@ unsigned char PNGProperties::Prior(unsigned int _scanlineNum, unsigned int _stri
 	}
 
 	return 0;
+}
+
+unsigned char PNGProperties::Average(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
+{
+	unsigned char left = Previous(_scanlineNum, _stride, _posInScanline, _bytesPerPixel, _byteBuffer);
+	unsigned char up = Prior(_scanlineNum, _stride, _posInScanline, _byteBuffer);
+
+	return (unsigned char)floor((left + up) / 2.0);
 }
 
 unsigned char PNGProperties::PrevPrior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
