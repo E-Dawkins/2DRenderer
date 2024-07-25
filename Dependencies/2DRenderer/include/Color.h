@@ -13,12 +13,20 @@ public:
 	}
 
 	// Color channels are first divided by the _channelMax, then clamped between 0-1.
-	Color(float _r, float _g, float _b, float _a, float _channelMax = 1.f)
+	Color(float _r, float _g, float _b, float _a, float _channelMax = 1.f, bool _clamped = true)
 	{
-		r = std::fmax(std::fmin(_r / _channelMax, 1.f), 0.f);
-		g = std::fmax(std::fmin(_g / _channelMax, 1.f), 0.f);
-		b = std::fmax(std::fmin(_b / _channelMax, 1.f), 0.f);
-		a = std::fmax(std::fmin(_a / _channelMax, 1.f), 0.f);
+		r = _r / _channelMax;
+		g = _g / _channelMax;
+		b = _b / _channelMax;
+		a = _a / _channelMax;
+
+		if (_clamped)
+		{
+			r = std::fmax(std::fmin(r, 1.f), 0.f);
+			g = std::fmax(std::fmin(g, 1.f), 0.f);
+			b = std::fmax(std::fmin(b, 1.f), 0.f);
+			a = std::fmax(std::fmin(a, 1.f), 0.f);
+		}
 	}
 
 	bool operator == (Color& _other)

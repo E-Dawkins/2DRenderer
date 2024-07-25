@@ -16,7 +16,7 @@ PNGProperties::PNGProperties()
 	palette = {};
 	pixels = {};
 	backgroundColor = Color(0, 0, 0, 0);
-	trnsColor = Color(-1, -1, -1, -1);
+	trnsColor = Color(-1, -1, -1, -1, 1, false);
 	gamma = 1.f;
 }
 
