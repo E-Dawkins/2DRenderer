@@ -1,8 +1,10 @@
 #include "PNG.h"
 
 #include "ByteHelpers.h"
-#include <gzguts.h> // TODO - replace with own decompressor?
 #include "BitReader.h"
+
+#include <gzguts.h> // TODO - replace with own decompressor?
+#include <string>
 
 PNGProperties::PNGProperties()
 {
@@ -26,13 +28,11 @@ void PNGProperties::LoadPNG(const char* _filePath)
 	reader.open(_filePath, std::ios::in | std::ios::binary);
 
 	if (!reader.is_open())
-		return;
-
-	if (!CheckSignature(reader))
 	{
-		reader.close();
-		return;
+		throw std::runtime_error(std::string("Could not open file at: \"") + _filePath + std::string("\""));
 	}
+
+	CheckSignature(reader);
 
 	bool reading = true;
 	std::vector<unsigned char> rawIDATData;
@@ -40,6 +40,13 @@ void PNGProperties::LoadPNG(const char* _filePath)
 	while (reading)
 	{
 		unsigned int chunkLength = R2D_BH::ReadBytesIntoUInt(reader, 4);
+
+		// Compute the checksum for this chunk, including chunk type + data
+		uLong crc = crc32(0L, Z_NULL, 0);
+		crc = crc32(crc, (Bytef*)R2D_BH::ReadBytesIntoStr(reader, chunkLength + 4), chunkLength + 4);
+
+		// Re-wind the readers' position to correctly read in the chunk type + data
+		reader.seekg(-(int)(chunkLength + 4), std::ios_base::cur);
 		char* chunkType = R2D_BH::ReadBytesIntoStr(reader, 4);
 
 		// We've read all IDAT chunks, now we need to decode the data
@@ -63,6 +70,11 @@ void PNGProperties::LoadPNG(const char* _filePath)
 		else if (R2D_BH::CompCharArrToStr(chunkType, "IEND", 4))
 		{
 			reading = false;
+
+			if (rawIDATData.size() == 0)
+			{
+				throw std::runtime_error("No IDAT chunk present in PNG file.");
+			}
 		}
 		else if (IsAncillaryChunk(chunkType))
 		{
@@ -74,25 +86,68 @@ void PNGProperties::LoadPNG(const char* _filePath)
 		}
 
 		// CRC is present at the end of every chunk, even empty ones
-		char crc[4];
-		reader.read(crc, 4);
+		// Check the stored checksum against the pre-computed one
+		uLong storedCRC;
+		reader.read((char*)&storedCRC, 4);
+
+		if (crc != R2D_BH::ToBigEndian(storedCRC))
+		{
+			throw std::runtime_error("Stored checksum for " + std::string(chunkType, 4)+" chunk does not match pre-computed checksum.");
+		}
 	}
 
 	reader.close();
 }
 
-bool PNGProperties::CheckSignature(std::ifstream& _reader)
+void PNGProperties::CheckSignature(std::ifstream& _reader)
 {
 	constexpr char pngSignature[8] = { -119, 80, 78, 71, 13, 10, 26, 10 };
 	const char* pngSig = R2D_BH::ReadBytesIntoStr(_reader, 8);
 
 	if (!R2D_BH::CompCharArrToStr(pngSig, pngSignature, 8))
 	{
-		perror("PNG file signature does not match standard spec!");
-		return false;
+		std::string expected, actual;
+		for (char c : pngSignature) expected += std::to_string((int)c) + ", ";
+		for (unsigned int i = 0; i < 8; i++) actual += std::to_string((int)pngSig[i]) + ", ";
+		throw std::runtime_error("PNG file signature does not match standard spec.\nExpect: " + expected + "\nActual: " + actual);
+	}
+}
+
+void PNGProperties::CheckIHDRData()
+{
+	std::string errorType = "", errorData = "";
+
+	const std::vector<unsigned char> allowedColourTypes = { 0, 2, 3, 4, 6 };
+	if (std::find(allowedColourTypes.begin(), allowedColourTypes.end(), colourType) == allowedColourTypes.end())
+	{
+		errorType = "colour type", errorData = std::to_string((unsigned int)colourType);
 	}
 
-	return true;
+	constexpr unsigned short allowedBitDepths[7] = { 0b11111, 0b0, 0b11000, 0b1111, 0b11000, 0b0, 0b11000 };
+	if (!(bitDepth & allowedBitDepths[colourType]))
+	{
+		errorType = "bit depth", errorData = std::to_string((unsigned int)bitDepth);
+	}
+
+	if (compressionMethod != 0)
+	{
+		errorType = "compression method", errorData = std::to_string((unsigned int)compressionMethod);
+	}
+
+	if (filterMethod != 0)
+	{
+		errorType = "filter method", errorData = std::to_string((unsigned int)filterMethod);
+	}
+
+	if (interlaceMethod != 0 && interlaceMethod != 1)
+	{
+		errorType = "interlace method", errorData = std::to_string((unsigned int)interlaceMethod);
+	}
+
+	if (errorType != "" && errorData != "")
+	{
+		throw std::runtime_error("IHDR chunk contains an invalid " + errorType + ". Read as " + errorType + ": " + errorData);
+	}
 }
 
 void PNGProperties::Chunk_IHDR(std::ifstream& _reader)
@@ -105,6 +160,8 @@ void PNGProperties::Chunk_IHDR(std::ifstream& _reader)
 	_reader.read(&compressionMethod, 1);
 	_reader.read(&filterMethod, 1);
 	_reader.read(&interlaceMethod, 1);
+
+	CheckIHDRData();
 }
 
 void PNGProperties::Chunk_PLTE(std::ifstream& _reader, unsigned int _chunkLength)

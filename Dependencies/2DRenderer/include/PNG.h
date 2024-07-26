@@ -13,7 +13,8 @@ public:
 	void LoadPNG(const char* _filePath);
 
 protected:
-	bool CheckSignature(std::ifstream& _reader);
+	void CheckSignature(std::ifstream& _reader);
+	void CheckIHDRData();
 	void Chunk_IHDR(std::ifstream& _reader);
 	void Chunk_PLTE(std::ifstream& _reader, unsigned int _chunkLength);
 	void Chunk_IDAT(std::ifstream& _reader, unsigned int _chunkLength, std::vector<unsigned char>& _data);

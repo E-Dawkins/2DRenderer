@@ -170,7 +170,7 @@ void RenderManager::LoadTexture()
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
 
-    Texture2D t = Texture2D("./PNGSuite/8-additional-palettes/ps2n2c16.png");
+    Texture2D t = Texture2D("./PNGSuite/12-corrupted-files/xd9n2c08.png");
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t.mPNGProps.width, t.mPNGProps.height, 0, GL_RGBA, GL_FLOAT, t.mPNGProps.pixels.data());
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);

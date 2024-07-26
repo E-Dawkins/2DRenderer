@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 
 #pragma warning(disable : 6054)
 
@@ -15,20 +16,27 @@ Texture2D::Texture2D()
 
 Texture2D::Texture2D(std::string _filePath)
 {
-
 	mFilePath = _filePath;
 	mPNGProps = PNGProperties();
 
 	SetFileName();
 	SetFormat();
 
-	if (IsValidFormat())
+	try
 	{
-		switch (mFormat)
+		if (IsValidFormat())
 		{
-			case PNG:	LoadPNG();	break;
-			case JPG:	LoadJPG();	break;
+			switch (mFormat)
+			{
+				case PNG:	LoadPNG();	break;
+				case JPG:	LoadJPG();	break;
+			}
 		}
+	}
+	catch (const std::exception& _e)
+	{
+		std::cout << "!! Exception reading " << mFileName << " !!" << std::endl;
+		std::cout << _e.what() << std::endl;
 	}
 }
 
