@@ -170,14 +170,14 @@ void RenderManager::LoadTexture()
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
 
-    Texture2D t = Texture2D("./PNGSuite/12-corrupted-files/xd9n2c08.png");
+    Texture2D t = Texture2D("./PNGSuite/1-interlacing/basi6a16.png");
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t.mPNGProps.width, t.mPNGProps.height, 0, GL_RGBA, GL_FLOAT, t.mPNGProps.pixels.data());
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     // Enable transparency
     glEnable(GL_BLEND);

@@ -1,7 +1,6 @@
 #include "PNG.h"
 
 #include "ByteHelpers.h"
-#include "BitReader.h"
 
 #include <gzguts.h> // TODO - replace with own decompressor?
 #include <string>
@@ -381,28 +380,104 @@ void PNGProperties::DecompressIDATData(std::vector<unsigned char>& _compressedDa
 void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedData)
 {
 	constexpr char channels[7] = { 1, 0, 3, 1, 2, 0, 4 };
-
-	double bytesPerPixel = (double)(bitDepth * channels[colourType]) / 8.0;
-	double stride = (double)width * bytesPerPixel;
+	const double bytesPerPixel = (double)(bitDepth * channels[colourType]) / 8.0;
 
 	unsigned int offsetBytesPerPixel = (unsigned int)std::fmax(bytesPerPixel, 1); // minimum 1 byte offset
+	unsigned int totalScanlines = GetTotalScanlines();
 
-	for (unsigned int _scanlineNum = 0, i = 0; _scanlineNum < height; _scanlineNum++)
+	std::vector<unsigned short> scanlineLengths(totalScanlines, 0), startingRows(totalScanlines, 0);
+
+	constexpr double passMultis[7] = { 1.0, 1.0, 1.0, 2.0, 2.0, 4.0, 4.0 };
+	for (unsigned int i = 0, index = 0, row = 0, value = 8; i < 7; i++)
+	{
+		double scanlinesInPass = ((double)height / 8.0) * passMultis[i];
+		
+		for (unsigned int j = 0; j < scanlinesInPass; j++)
+		{
+			startingRows[index] = row;
+			scanlineLengths[index] = (width / value);
+			index++;
+		}
+
+		row += (unsigned int)scanlinesInPass;
+		if (i % 2 == 1) value /= 2;
+	}
+
+	// Return previous byte in scanline
+	auto previous = [&](unsigned int _byteIndex, unsigned int _posInScanline)
+		{
+			if (_posInScanline >= offsetBytesPerPixel)
+				return _decompressedData[_byteIndex - offsetBytesPerPixel];
+
+			return (unsigned char)0;
+		};
+
+	// Return corresponding byte of prior scanline
+	auto prior = [&](unsigned int _byteIndex, unsigned int _scanlineNum, double _stride)
+		{
+			if (_scanlineNum > startingRows[_scanlineNum])
+				return _decompressedData[_byteIndex - (unsigned int)std::fmax(_stride, 1.0)];
+
+			return (unsigned char)0;
+		};
+
+	// Return corresponding previous byte of prior scanline
+	auto prevPrior = [&](unsigned int _byteIndex, unsigned int _posInScanline, unsigned int _scanlineNum, double _stride)
+		{
+			if (_scanlineNum > 0 && _posInScanline >= offsetBytesPerPixel)
+				return _decompressedData[_byteIndex - (unsigned int)std::fmax(_stride, 1.0) - offsetBytesPerPixel];
+
+			return (unsigned char)0;
+		};
+
+	auto paethPredictor = [](unsigned char _left, unsigned char _up, unsigned char _upLeft)
+		{
+			unsigned short p = (unsigned short)std::fmax(_left + _up - _upLeft, 0);		// initial estimate
+			unsigned short pa = abs(p - _left);				// distances to a, b, c
+			unsigned short pb = abs(p - _up);
+			unsigned short pc = abs(p - _upLeft);
+
+			// Return minimum distance
+			if (pa <= pb && pa <= pc) return _left;
+			else if (pb <= pc) return _up;
+			return _upLeft;
+		};
+
+	for (unsigned int scanlineNum = 0, i = 0; scanlineNum < totalScanlines; scanlineNum++)
 	{
 		char filterMethod = _decompressedData[i];
 		_decompressedData.erase(_decompressedData.begin() + i); // remove filter byte from data, not needed after this point
 
-		for (unsigned int _posInScanline = 0; _posInScanline < stride; _posInScanline++)
+		double stride = (double)((interlaceMethod == 0) ? width : scanlineLengths[scanlineNum]) * bytesPerPixel;
+
+		for (unsigned int posInScanline = 0; posInScanline < stride; posInScanline++)
 		{
 			unsigned short byte = (unsigned short)_decompressedData[i];
 
-			switch (filterMethod)
+			switch (filterMethod) // NONE, SUB, UP, AVG, PAETH
 			{
 				case 0: break;
-				case 1: byte += Previous(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
-				case 2: byte += Prior(_scanlineNum, (unsigned int)stride, _posInScanline, _decompressedData.data()); break;
-				case 3: byte += Average(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
-				case 4: byte += Paeth(_scanlineNum, (unsigned int)stride, _posInScanline, offsetBytesPerPixel, _decompressedData.data()); break;
+				case 1: byte += previous(i, posInScanline); break;
+				case 2: byte += prior(i, scanlineNum, stride); break;
+				case 3:
+				{
+					unsigned char left = previous(i, posInScanline);
+					unsigned char up = prior(i, scanlineNum, stride);
+
+					byte += (unsigned char)floor((left + up) / 2.0);
+
+					break;
+				}
+				case 4:
+				{
+					unsigned char left = previous(i, posInScanline);
+					unsigned char up = prior(i, scanlineNum, stride);
+					unsigned char upLeft = prevPrior(i, posInScanline, scanlineNum, stride);
+
+					byte += paethPredictor(left, up, upLeft);
+
+					break;
+				}
 			}
 
 			_decompressedData[i++] = byte % 256; // keep in byte format
@@ -413,130 +488,45 @@ void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedDa
 void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 {
 	BitReader br = BitReader(_unfiltered.data());
-	pixels.resize((size_t)(width * height));
-	float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
+	pixels.resize((size_t)(width * height), Color(1, 0, 1, 1));
 
-	for (unsigned int i = 0; i < width * height; i++) // fill the pixel data
+	if (interlaceMethod == 0)
 	{
-		if (i != 0 && i % width == 0) // this is a failsafe if a scanline doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
+		for (unsigned int i = 0; i < width * height; i++) // fill the pixel data
 		{
-			br.NextByte();
+			if (i != 0 && i % width == 0) // this is a failsafe if a scanline doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
+			{
+				br.NextByte();
+			}
+
+			pixels[i] = GetNextPixel(br);
+			CheckTRNS(pixels[i]);
 		}
+	}
+	else
+	{
+		unsigned char startingRows[7] = { 0, 0, 4, 0, 2, 0, 1 };
+		unsigned char startingCols[7] = { 0, 4, 0, 2, 0, 1, 0 };
+		unsigned char rowIncrement[7] = { 8, 8, 8, 4, 4, 2, 2 };
+		unsigned char colIncrement[7] = { 8, 8, 4, 4, 2, 2, 1 };
 
-		switch (colourType)
+		for (unsigned int pass = 0; pass < 7; pass++)
 		{
-			case 0: // grayscale
+			for (unsigned int row = startingRows[pass]; row < height; row += rowIncrement[pass])
 			{
-				float g = (float)br.ReadBits(bitDepth);
+				for (unsigned int col = startingCols[pass]; col < width; col += colIncrement[pass])
+				{
+					unsigned int index = (row * width) + col;
 
-				pixels[i] = Color(g, g, g, sampleMax, sampleMax);
-				break;
-			}
+					pixels[index] = GetNextPixel(br);
+					CheckTRNS(pixels[index]);
+				}
 
-			case 2: // RGB
-			{
-				float r = (float)br.ReadBits(bitDepth);
-				float g = (float)br.ReadBits(bitDepth);
-				float b = (float)br.ReadBits(bitDepth);
-
-				pixels[i] = Color(r, g, b, sampleMax, sampleMax);
-				break;
-			}
-
-			case 3: // indexed
-			{
-				unsigned int paletteIndex = (unsigned int)br.ReadBits(bitDepth);
-
-				pixels[i] = palette[paletteIndex];
-				break;
-			}
-
-			case 4: // grayscale + alpha
-			{
-				float g = (float)br.ReadBits(bitDepth);
-				float a = (float)br.ReadBits(bitDepth);
-
-				pixels[i] = Color(g, g, g, a, sampleMax);
-				break;
-			}
-
-			case 6: // RGB + alpha
-			{
-				float r = (float)br.ReadBits(bitDepth);
-				float g = (float)br.ReadBits(bitDepth);
-				float b = (float)br.ReadBits(bitDepth);
-				float a = (float)br.ReadBits(bitDepth);
-
-				pixels[i] = Color(r, g, b, a, sampleMax);
-				break;
+				// This is a failsafe if a pixel doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
+				br.NextByte();
 			}
 		}
-
-		CheckTRNS(pixels[i]);
 	}
-}
-
-unsigned char PNGProperties::Previous(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
-{
-	if (_posInScanline >= _bytesPerPixel)
-	{
-		unsigned int index = _scanlineNum * _stride + _posInScanline - _bytesPerPixel;
-		return _byteBuffer[index];
-	}
-
-	return 0;
-}
-
-unsigned char PNGProperties::Prior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned char* _byteBuffer)
-{
-	if (_scanlineNum > 0)
-	{
-		unsigned int index = (_scanlineNum - 1) * _stride + _posInScanline;
-		return _byteBuffer[index];
-	}
-
-	return 0;
-}
-
-unsigned char PNGProperties::Average(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
-{
-	unsigned char left = Previous(_scanlineNum, _stride, _posInScanline, _bytesPerPixel, _byteBuffer);
-	unsigned char up = Prior(_scanlineNum, _stride, _posInScanline, _byteBuffer);
-
-	return (unsigned char)floor((left + up) / 2.0);
-}
-
-unsigned char PNGProperties::PrevPrior(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
-{
-	if (_scanlineNum > 0 && _posInScanline >= _bytesPerPixel)
-	{
-		unsigned int index = (_scanlineNum - 1) * _stride + _posInScanline - _bytesPerPixel;
-		return _byteBuffer[index];
-	}
-
-	return 0;
-}
-
-unsigned char PNGProperties::Paeth(unsigned int _scanlineNum, unsigned int _stride, unsigned int _posInScanline, unsigned int _bytesPerPixel, unsigned char* _byteBuffer)
-{
-	unsigned char left = Previous(_scanlineNum, _stride, _posInScanline, _bytesPerPixel, _byteBuffer);
-	unsigned char up = Prior(_scanlineNum, _stride, _posInScanline, _byteBuffer);
-	unsigned char upLeft = PrevPrior(_scanlineNum, _stride, _posInScanline, _bytesPerPixel, _byteBuffer);
-
-	return PaethPredictor(left, up, upLeft);
-}
-
-unsigned char PNGProperties::PaethPredictor(unsigned char _left, unsigned char _up, unsigned char _upLeft)
-{
-	unsigned short p = (unsigned short)std::fmax(_left + _up - _upLeft, 0);		// initial estimate
-	unsigned short pa = abs(p - _left);				// distances to a, b, c
-	unsigned short pb = abs(p - _up);
-	unsigned short pc = abs(p - _upLeft);
-
-	// Return minimum distance
-	if (pa <= pb && pa <= pc) return _left;
-	else if (pb <= pc) return _up;
-	return _upLeft;
 }
 
 void PNGProperties::CheckTRNS(Color& _color)
@@ -563,4 +553,85 @@ void PNGProperties::CheckTRNS(Color& _color)
 			break;
 		}
 	}
+}
+
+unsigned int PNGProperties::GetTotalScanlines()
+{
+	unsigned int total = 0;
+
+	if (interlaceMethod == 0) total = height;
+	else
+	{
+		int iHeight = (int)height;
+
+		total += (unsigned int)fmax(ceil(iHeight / 8.0), 0);
+		if (width > 4)
+		{
+			total += (unsigned int)fmax(ceil(iHeight / 8.0), 0);
+			total += (unsigned int)fmax(ceil((iHeight - 4) / 8.0), 0);
+		}
+		if (width > 2)
+		{
+			total += (unsigned int)fmax(ceil(iHeight / 4.0), 0);
+			total += (unsigned int)fmax(ceil((iHeight - 2) / 4.0), 0);
+		}
+		if (width > 1)
+		{
+			total += (unsigned int)fmax(ceil(iHeight / 2.0), 0);
+			total += (unsigned int)fmax(ceil(iHeight / 2.0), 0);
+		}
+	}
+
+	return total;
+}
+
+Color PNGProperties::GetNextPixel(BitReader& _br)
+{
+	float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
+
+	switch (colourType)
+	{
+		case 0: // grayscale
+		{
+			float g = (float)_br.ReadBits(bitDepth);
+
+			return Color(g, g, g, sampleMax, sampleMax);
+		}
+
+		case 2: // RGB
+		{
+			float r = (float)_br.ReadBits(bitDepth);
+			float g = (float)_br.ReadBits(bitDepth);
+			float b = (float)_br.ReadBits(bitDepth);
+
+			return Color(r, g, b, sampleMax, sampleMax);
+		}
+
+		case 3: // indexed
+		{
+			unsigned int paletteIndex = (unsigned int)_br.ReadBits(bitDepth);
+
+			return palette[paletteIndex];
+		}
+
+		case 4: // grayscale + alpha
+		{
+			float g = (float)_br.ReadBits(bitDepth);
+			float a = (float)_br.ReadBits(bitDepth);
+
+			return Color(g, g, g, a, sampleMax);
+		}
+
+		case 6: // RGB + alpha
+		{
+			float r = (float)_br.ReadBits(bitDepth);
+			float g = (float)_br.ReadBits(bitDepth);
+			float b = (float)_br.ReadBits(bitDepth);
+			float a = (float)_br.ReadBits(bitDepth);
+
+			return Color(r, g, b, a, sampleMax);
+		}
+	}
+
+	return Color();
 }
