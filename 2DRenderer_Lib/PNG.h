@@ -38,7 +38,9 @@ protected:
 	// Any pixel that matches the TRNS color should be treated as fully transparent.
 	void CheckTRNS(Color& _color);
 
-	unsigned int GetTotalScanlines();
+	bool IsPassValid(unsigned int _pass);
+
+	void GetScanlineVars(std::vector<unsigned short>& _scanlineLengths, std::vector<unsigned short>& _startingRows, unsigned int& _totalScanlines);
 
 	Color GetNextPixel(BitReader& _br);
 

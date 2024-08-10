@@ -48,6 +48,12 @@ public:
 		);
 	}
 
+	friend std::ostream& operator << (std::ostream& _os, const Color& _color)
+	{
+		_os << "(" << _color.r << ", " << _color.g << ", " << _color.b << ", " << _color.a << ")";
+		return _os;
+	}
+
 public:
 	float r, g, b, a;
 };

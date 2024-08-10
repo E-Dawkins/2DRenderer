@@ -383,25 +383,11 @@ void PNGProperties::UnfilterIDATData(std::vector<unsigned char>& _decompressedDa
 	const double bytesPerPixel = (double)(bitDepth * channels[colourType]) / 8.0;
 
 	unsigned int offsetBytesPerPixel = (unsigned int)std::fmax(bytesPerPixel, 1); // minimum 1 byte offset
-	unsigned int totalScanlines = GetTotalScanlines();
 
-	std::vector<unsigned short> scanlineLengths(totalScanlines, 0), startingRows(totalScanlines, 0);
+	std::vector<unsigned short> scanlineLengths, startingRows;
+	unsigned int totalScanlines;
 
-	constexpr double passMultis[7] = { 1.0, 1.0, 1.0, 2.0, 2.0, 4.0, 4.0 };
-	for (unsigned int i = 0, index = 0, row = 0, value = 8; i < 7; i++)
-	{
-		double scanlinesInPass = ((double)height / 8.0) * passMultis[i];
-		
-		for (unsigned int j = 0; j < scanlinesInPass; j++)
-		{
-			startingRows[index] = row;
-			scanlineLengths[index] = (width / value);
-			index++;
-		}
-
-		row += (unsigned int)scanlinesInPass;
-		if (i % 2 == 1) value /= 2;
-	}
+	GetScanlineVars(scanlineLengths, startingRows, totalScanlines);
 
 	// Return previous byte in scanline
 	auto previous = [&](unsigned int _byteIndex, unsigned int _posInScanline)
@@ -522,7 +508,7 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 					CheckTRNS(pixels[index]);
 				}
 
-				// This is a failsafe if a pixel doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
+				// this is a failsafe if a scanline doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
 				br.NextByte();
 			}
 		}
@@ -555,34 +541,81 @@ void PNGProperties::CheckTRNS(Color& _color)
 	}
 }
 
-unsigned int PNGProperties::GetTotalScanlines()
+bool PNGProperties::IsPassValid(unsigned int _pass)
 {
-	unsigned int total = 0;
-
-	if (interlaceMethod == 0) total = height;
-	else
+	switch (_pass)
 	{
-		int iHeight = (int)height;
-
-		total += (unsigned int)fmax(ceil(iHeight / 8.0), 0);
-		if (width > 4)
-		{
-			total += (unsigned int)fmax(ceil(iHeight / 8.0), 0);
-			total += (unsigned int)fmax(ceil((iHeight - 4) / 8.0), 0);
-		}
-		if (width > 2)
-		{
-			total += (unsigned int)fmax(ceil(iHeight / 4.0), 0);
-			total += (unsigned int)fmax(ceil((iHeight - 2) / 4.0), 0);
-		}
-		if (width > 1)
-		{
-			total += (unsigned int)fmax(ceil(iHeight / 2.0), 0);
-			total += (unsigned int)fmax(ceil(iHeight / 2.0), 0);
-		}
+		case 0: return true;
+		case 1: return (width > 4);
+		case 2: return (height > 4);
+		case 3: return (width > 2);
+		case 4: return (height > 2);
+		case 5: return (width > 1);
+		case 6: return (height > 1);
 	}
 
-	return total;
+	return false;
+}
+
+void PNGProperties::GetScanlineVars(std::vector<unsigned short>& _scanlineLengths, std::vector<unsigned short>& _startingRows, unsigned int& _totalScanlines)
+{
+	if (interlaceMethod == 0)
+	{
+		_scanlineLengths = std::vector<unsigned short>(height, width);
+		_startingRows = std::vector<unsigned short>(height, 0);
+		_totalScanlines = height;
+
+		return;
+	}
+
+	double passes[7] = {
+		std::ceil((double)height / 8),
+		std::ceil((double)height / 8),
+		std::ceil((double)(height - 4) / 8),
+		std::ceil((double)height / 4),
+		std::ceil((double)(height - 2) / 4),
+		std::ceil((double)height / 2),
+		std::ceil((double)(height - 1) / 2)
+	};
+
+	double lengths[7] = {
+		std::ceil((double)width / 8),
+		(width > 4) ? std::ceil((double)(width - 4) / 8) : 0,
+		std::ceil((double)width / 4),
+		(width > 2) ? std::ceil((double)(width - 2) / 4) : 0,
+		std::ceil((double)width / 2),
+		(width > 1) ? std::ceil((double)(width - 1) / 2) : 0,
+		(double)width
+	};
+
+	_totalScanlines = 0;
+	for (unsigned int i = 0; i < 7; i++)
+	{
+		if (IsPassValid(i)) _totalScanlines += (unsigned int)passes[i];
+	}
+
+	_scanlineLengths = std::vector<unsigned short>(_totalScanlines, 0);
+	_startingRows = std::vector<unsigned short>(_totalScanlines, 0);
+
+	for (unsigned int i = 0, index = 0, row = 0, value = 8; i < 7; i++)
+	{
+		if (!IsPassValid(i)) continue;
+
+		double scanlinesInPass = passes[i];
+
+		for (unsigned int j = 0; j < scanlinesInPass; j++)
+		{
+			if (index < _startingRows.size())
+			{
+				_startingRows[index] = row;
+				_scanlineLengths[index] = (unsigned short)ceil(lengths[i]);
+				index++;
+			}
+		}
+
+		row += (unsigned int)scanlinesInPass;
+		if (i % 2 == 1) value /= 2;
+	}
 }
 
 Color PNGProperties::GetNextPixel(BitReader& _br)
