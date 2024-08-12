@@ -44,6 +44,8 @@ protected:
 
 	Color GetNextPixel(BitReader& _br);
 
+	void ApplyGamma(Color& _color);
+
 public:
 	unsigned int width, height;
 

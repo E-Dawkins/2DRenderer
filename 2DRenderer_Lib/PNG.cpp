@@ -486,7 +486,6 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 			}
 
 			pixels[i] = GetNextPixel(br);
-			CheckTRNS(pixels[i]);
 		}
 	}
 	else
@@ -505,7 +504,6 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 					unsigned int index = (row * width) + col;
 
 					pixels[index] = GetNextPixel(br);
-					CheckTRNS(pixels[index]);
 				}
 
 				// this is a failsafe if a scanline doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
@@ -622,13 +620,16 @@ Color PNGProperties::GetNextPixel(BitReader& _br)
 {
 	float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
 
+	Color output = Color();
+
 	switch (colourType)
 	{
 		case 0: // grayscale
 		{
 			float g = (float)_br.ReadBits(bitDepth);
 
-			return Color(g, g, g, sampleMax, sampleMax);
+			output = Color(g, g, g, sampleMax, sampleMax);
+			break;
 		}
 
 		case 2: // RGB
@@ -637,14 +638,16 @@ Color PNGProperties::GetNextPixel(BitReader& _br)
 			float g = (float)_br.ReadBits(bitDepth);
 			float b = (float)_br.ReadBits(bitDepth);
 
-			return Color(r, g, b, sampleMax, sampleMax);
+			output = Color(r, g, b, sampleMax, sampleMax);
+			break;
 		}
 
 		case 3: // indexed
 		{
 			unsigned int paletteIndex = (unsigned int)_br.ReadBits(bitDepth);
 
-			return palette[paletteIndex];
+			output = palette[paletteIndex];
+			break;
 		}
 
 		case 4: // grayscale + alpha
@@ -652,7 +655,8 @@ Color PNGProperties::GetNextPixel(BitReader& _br)
 			float g = (float)_br.ReadBits(bitDepth);
 			float a = (float)_br.ReadBits(bitDepth);
 
-			return Color(g, g, g, a, sampleMax);
+			output = Color(g, g, g, a, sampleMax);
+			break;
 		}
 
 		case 6: // RGB + alpha
@@ -662,9 +666,22 @@ Color PNGProperties::GetNextPixel(BitReader& _br)
 			float b = (float)_br.ReadBits(bitDepth);
 			float a = (float)_br.ReadBits(bitDepth);
 
-			return Color(r, g, b, a, sampleMax);
+			output = Color(r, g, b, a, sampleMax);
+			break;
 		}
 	}
 
-	return Color();
+	ApplyGamma(output);
+	CheckTRNS(output);
+
+	return output;
+}
+
+void PNGProperties::ApplyGamma(Color& _color)
+{
+	float gammaPower = 1.f / gamma;
+
+	_color.r = powf(_color.r, gammaPower);
+	_color.g = powf(_color.g, gammaPower);
+	_color.b = powf(_color.b, gammaPower);
 }

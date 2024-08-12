@@ -27,13 +27,9 @@ static const GLchar* fragmentSource = R"glsl(
     in vec2 Texcoord;
     out vec4 outColor;
     uniform sampler2D tex;
-    uniform float gamma;
     void main()
     {
-        vec3 color = texture(tex, Texcoord).rgb;
-        float alpha = texture(tex, Texcoord).a;
-        color = pow(color, vec3(1.0 / gamma));
-        outColor = vec4(color, alpha);
+        outColor = texture(tex, Texcoord);
     }
 )glsl";
 
@@ -170,7 +166,7 @@ void RenderManager::LoadTexture()
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
 
-    Texture2D t = Texture2D("./PNGSuite/4-background-colours/bgai4a16.png");
+    Texture2D t = Texture2D("./PNGSuite/6-gamma-values/g03n0g16.png");
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, t.mPNGProps.width, t.mPNGProps.height, 0, GL_RGBA, GL_FLOAT, t.mPNGProps.pixels.data());
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -182,10 +178,6 @@ void RenderManager::LoadTexture()
     // Enable transparency
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Bind gamma value
-    GLint gammaLocation = glGetUniformLocation(mShaderProgram, "gamma");
-    glUniform1f(gammaLocation, t.mPNGProps.gamma);
 }
 
 void RenderManager::RenderLoop()
