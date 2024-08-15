@@ -16,7 +16,6 @@ PNGProperties::PNGProperties()
 	interlaceMethod = 0;
 	palette = {};
 	pixels = {};
-	backgroundColor = Color(0, 0, 0, 0);
 	trnsColor = Color(-1, -1, -1, -1, 1, false);
 	gamma = 1.f;
 }
@@ -51,7 +50,11 @@ void PNGProperties::LoadPNG(const char* _filePath)
 		// We've read all IDAT chunks, now we need to decode the data
 		if (rawIDATData.size() != 0 && !R2D_BH::CompCharArrToStr(chunkType, "IDAT", 4))
 		{
-			DecodeIDATData(rawIDATData);
+			std::vector<unsigned char> decodedIDATData;
+
+			DecompressIDATData(rawIDATData, decodedIDATData);
+			UnfilterIDATData(decodedIDATData);
+			ReadIDATData(decodedIDATData);
 		}
 
 		if (R2D_BH::CompCharArrToStr(chunkType, "IHDR", 4))
@@ -96,57 +99,6 @@ void PNGProperties::LoadPNG(const char* _filePath)
 	}
 
 	reader.close();
-}
-
-void PNGProperties::CheckSignature(std::ifstream& _reader)
-{
-	constexpr char pngSignature[8] = { -119, 80, 78, 71, 13, 10, 26, 10 };
-	const char* pngSig = R2D_BH::ReadBytesIntoStr(_reader, 8);
-
-	if (!R2D_BH::CompCharArrToStr(pngSig, pngSignature, 8))
-	{
-		std::string expected, actual;
-		for (char c : pngSignature) expected += std::to_string((int)c) + ", ";
-		for (unsigned int i = 0; i < 8; i++) actual += std::to_string((int)pngSig[i]) + ", ";
-		throw std::runtime_error("PNG file signature does not match standard spec.\nExpect: " + expected + "\nActual: " + actual);
-	}
-}
-
-void PNGProperties::CheckIHDRData()
-{
-	std::string errorType = "", errorData = "";
-
-	const std::vector<unsigned char> allowedColourTypes = { 0, 2, 3, 4, 6 };
-	if (std::find(allowedColourTypes.begin(), allowedColourTypes.end(), colourType) == allowedColourTypes.end())
-	{
-		errorType = "colour type", errorData = std::to_string((unsigned int)colourType);
-	}
-
-	constexpr unsigned short allowedBitDepths[7] = { 0b11111, 0b0, 0b11000, 0b1111, 0b11000, 0b0, 0b11000 };
-	if (!(bitDepth & allowedBitDepths[colourType]))
-	{
-		errorType = "bit depth", errorData = std::to_string((unsigned int)bitDepth);
-	}
-
-	if (compressionMethod != 0)
-	{
-		errorType = "compression method", errorData = std::to_string((unsigned int)compressionMethod);
-	}
-
-	if (filterMethod != 0)
-	{
-		errorType = "filter method", errorData = std::to_string((unsigned int)filterMethod);
-	}
-
-	if (interlaceMethod != 0 && interlaceMethod != 1)
-	{
-		errorType = "interlace method", errorData = std::to_string((unsigned int)interlaceMethod);
-	}
-
-	if (errorType != "" && errorData != "")
-	{
-		throw std::runtime_error("IHDR chunk contains an invalid " + errorType + ". Read as " + errorType + ": " + errorData);
-	}
 }
 
 void PNGProperties::Chunk_IHDR(std::ifstream& _reader)
@@ -201,67 +153,12 @@ void PNGProperties::Chunk_IDAT(std::ifstream& _reader, unsigned int _chunkLength
 
 void PNGProperties::Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkLength, char* _chunkType)
 {
-	if (R2D_BH::CompCharArrToStr(_chunkType, "sRGB", 4))
-	{
-		unsigned char colourSpace = '\0';
-		_reader.read((char*)&colourSpace, 1);
-	}
-	else if (R2D_BH::CompCharArrToStr(_chunkType, "gAMA", 4))
+	if (R2D_BH::CompCharArrToStr(_chunkType, "gAMA", 4))
 	{
 		std::uint32_t gammaRaw = 0;
 		_reader.read((char*)&gammaRaw, 4);
 
 		gamma = (float)R2D_BH::ToBigEndian(gammaRaw) / 100000.f;
-	}
-	else if (R2D_BH::CompCharArrToStr(_chunkType, "pHYs", 4))
-	{
-		std::uint32_t ppuX = 0, ppuY = 0;
-		unsigned char unitSpecifier = '\0';
-
-		_reader.read((char*)&ppuX, 4);
-		_reader.read((char*)&ppuY, 4);
-		_reader.read((char*)&unitSpecifier, 1);
-	}
-	else if (R2D_BH::CompCharArrToStr(_chunkType, "bKGD", 4))
-	{
-		float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
-
-		switch (colourType)
-		{
-			case 3: // indexed
-			{
-				unsigned char paletteIndex;
-				_reader.read((char*)&paletteIndex, 1);
-
-				backgroundColor = palette[paletteIndex];
-
-				break;
-			}
-
-			case 0: // grayscale, with or without alpha
-			case 4:
-			{
-				unsigned short g;
-				_reader.read((char*)&g, 2);
-
-				backgroundColor = Color(g, g, g, sampleMax, sampleMax);
-
-				break;
-			}
-
-			case 2: // rgb, with or without alpha
-			case 6:
-			{
-				unsigned short r, g, b;
-				_reader.read((char*)&r, 2);
-				_reader.read((char*)&g, 2);
-				_reader.read((char*)&b, 2);
-
-				backgroundColor = Color(r, g, b, sampleMax, sampleMax);
-
-				break;
-			}
-		}
 	}
 	else if (R2D_BH::CompCharArrToStr(_chunkType, "tRNS", 4))
 	{
@@ -317,20 +214,6 @@ void PNGProperties::Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkL
 	{
 		_reader.seekg(_reader.tellg() + (std::streampos)_chunkLength);
 	}
-}
-
-bool PNGProperties::IsAncillaryChunk(const char* _chunkType)
-{
-	return (_chunkType[0] & 0b100000) != 0;
-}
-
-void PNGProperties::DecodeIDATData(std::vector<unsigned char>& _rawIDATData)
-{
-	std::vector<unsigned char> decodedIDATData;
-
-	DecompressIDATData(_rawIDATData, decodedIDATData);
-	UnfilterIDATData(decodedIDATData);
-	ReadIDATData(decodedIDATData);
 }
 
 void PNGProperties::DecompressIDATData(std::vector<unsigned char>& _compressedData, std::vector<unsigned char>& _decompressedData)
@@ -478,9 +361,9 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 
 	if (interlaceMethod == 0)
 	{
-		for (unsigned int i = 0; i < width * height; i++) // fill the pixel data
+		for (unsigned int i = 0; i < width * height; i++)
 		{
-			if (i != 0 && i % width == 0) // this is a failsafe if a scanline doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
+			if (i != 0 && i % width == 0) // if a scanline doesn't end on a byte boundary, skip to next byte
 			{
 				br.NextByte();
 			}
@@ -490,10 +373,8 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 	}
 	else
 	{
-		unsigned char startingRows[7] = { 0, 0, 4, 0, 2, 0, 1 };
-		unsigned char startingCols[7] = { 0, 4, 0, 2, 0, 1, 0 };
-		unsigned char rowIncrement[7] = { 8, 8, 8, 4, 4, 2, 2 };
-		unsigned char colIncrement[7] = { 8, 8, 4, 4, 2, 2, 1 };
+		unsigned char startingRows[7] = { 0, 0, 4, 0, 2, 0, 1 }, startingCols[7] = { 0, 4, 0, 2, 0, 1, 0 };
+		unsigned char rowIncrement[7] = { 8, 8, 8, 4, 4, 2, 2 }, colIncrement[7] = { 8, 8, 4, 4, 2, 2, 1 };
 
 		for (unsigned int pass = 0; pass < 7; pass++)
 		{
@@ -502,57 +383,71 @@ void PNGProperties::ReadIDATData(std::vector<unsigned char>& _unfiltered)
 				for (unsigned int col = startingCols[pass]; col < width; col += colIncrement[pass])
 				{
 					unsigned int index = (row * width) + col;
-
 					pixels[index] = GetNextPixel(br);
 				}
 
-				// this is a failsafe if a scanline doesn't end on a byte boundary, i.e. 5 pixels, 2 bit-depth
+				// if a scanline doesn't end on a byte boundary, skip to next byte
 				br.NextByte();
 			}
 		}
 	}
 }
 
-void PNGProperties::CheckTRNS(Color& _color)
+void PNGProperties::CheckSignature(std::ifstream& _reader)
 {
-	switch (colourType)
+	constexpr char pngSignature[8] = { -119, 80, 78, 71, 13, 10, 26, 10 };
+	const char* pngSig = R2D_BH::ReadBytesIntoStr(_reader, 8);
+
+	if (!R2D_BH::CompCharArrToStr(pngSig, pngSignature, 8))
 	{
-		case 0: // grayscale
-		{
-			if (_color.r == trnsColor.r)
-			{
-				_color.a = 0;
-			}
-
-			break;
-		}
-
-		case 2: // rgb
-		{
-			if (Color::EqualRGB(_color, trnsColor))
-			{
-				_color.a = 0;
-			}
-
-			break;
-		}
+		std::string expected, actual;
+		for (char c : pngSignature) expected += std::to_string((int)c) + ", ";
+		for (unsigned int i = 0; i < 8; i++) actual += std::to_string((int)pngSig[i]) + ", ";
+		throw std::runtime_error("PNG file signature does not match standard spec.\nExpect: " + expected + "\nActual: " + actual);
 	}
 }
 
-bool PNGProperties::IsPassValid(unsigned int _pass)
+void PNGProperties::CheckIHDRData()
 {
-	switch (_pass)
+	std::string errorType = "", errorData = "";
+
+	const std::vector<unsigned char> allowedColourTypes = { 0, 2, 3, 4, 6 };
+	if (std::find(allowedColourTypes.begin(), allowedColourTypes.end(), colourType) == allowedColourTypes.end())
 	{
-		case 0: return true;
-		case 1: return (width > 4);
-		case 2: return (height > 4);
-		case 3: return (width > 2);
-		case 4: return (height > 2);
-		case 5: return (width > 1);
-		case 6: return (height > 1);
+		errorType = "colour type", errorData = std::to_string((unsigned int)colourType);
 	}
 
-	return false;
+	constexpr unsigned short allowedBitDepths[7] = { 0b11111, 0b0, 0b11000, 0b1111, 0b11000, 0b0, 0b11000 };
+	if (!(bitDepth & allowedBitDepths[colourType]))
+	{
+		errorType = "bit depth", errorData = std::to_string((unsigned int)bitDepth);
+	}
+
+	if (compressionMethod != 0)
+	{
+		errorType = "compression method", errorData = std::to_string((unsigned int)compressionMethod);
+	}
+
+	if (filterMethod != 0)
+	{
+		errorType = "filter method", errorData = std::to_string((unsigned int)filterMethod);
+	}
+
+	if (interlaceMethod != 0 && interlaceMethod != 1)
+	{
+		errorType = "interlace method", errorData = std::to_string((unsigned int)interlaceMethod);
+	}
+
+	if (errorType != "" && errorData != "")
+	{
+		throw std::runtime_error("IHDR chunk contains an invalid " + errorType + ". Read as " + errorType + ": " + errorData);
+	}
+}
+
+bool PNGProperties::IsAncillaryChunk(const char* _chunkType)
+{
+	// Assuming _chunkType is exactly 4-bytes.
+	return (_chunkType[0] & 0b100000) != 0;
 }
 
 void PNGProperties::GetScanlineVars(std::vector<unsigned short>& _scanlineLengths, std::vector<unsigned short>& _startingRows, unsigned int& _totalScanlines)
@@ -566,39 +461,26 @@ void PNGProperties::GetScanlineVars(std::vector<unsigned short>& _scanlineLength
 		return;
 	}
 
-	double passes[7] = {
-		std::ceil((double)height / 8),
-		std::ceil((double)height / 8),
-		std::ceil((double)(height - 4) / 8),
-		std::ceil((double)height / 4),
-		std::ceil((double)(height - 2) / 4),
-		std::ceil((double)height / 2),
-		std::ceil((double)(height - 1) / 2)
-	};
-
-	double lengths[7] = {
-		std::ceil((double)width / 8),
-		(width > 4) ? std::ceil((double)(width - 4) / 8) : 0,
-		std::ceil((double)width / 4),
-		(width > 2) ? std::ceil((double)(width - 2) / 4) : 0,
-		std::ceil((double)width / 2),
-		(width > 1) ? std::ceil((double)(width - 1) / 2) : 0,
-		(double)width
-	};
-
+	constexpr unsigned char offset[8] = { 0, 0, 4, 0, 2, 0, 1, 0 }, divisor[8] = { 8, 8, 8, 4, 4, 2, 2, 1 };
+	double passes[7] = { 0, 0, 0, 0, 0, 0, 0 }, lengths[7] = { 0, 0, 0, 0, 0, 0, 0 };
 	_totalScanlines = 0;
+
 	for (unsigned int i = 0; i < 7; i++)
 	{
-		if (IsPassValid(i)) _totalScanlines += (unsigned int)passes[i];
+		if (height > offset[i] && width > offset[i + 1])
+		{
+			passes[i] = ceil((double)(width - offset[i]) / divisor[i]);
+			lengths[i] = ceil((double)(width - offset[i + 1]) / divisor[i + 1]);
+
+			_totalScanlines += (unsigned int)passes[i];
+		}
 	}
 
 	_scanlineLengths = std::vector<unsigned short>(_totalScanlines, 0);
 	_startingRows = std::vector<unsigned short>(_totalScanlines, 0);
 
-	for (unsigned int i = 0, index = 0, row = 0, value = 8; i < 7; i++)
+	for (unsigned int i = 0, index = 0, row = 0; i < 7; i++)
 	{
-		if (!IsPassValid(i)) continue;
-
 		double scanlinesInPass = passes[i];
 
 		for (unsigned int j = 0; j < scanlinesInPass; j++)
@@ -612,15 +494,14 @@ void PNGProperties::GetScanlineVars(std::vector<unsigned short>& _scanlineLength
 		}
 
 		row += (unsigned int)scanlinesInPass;
-		if (i % 2 == 1) value /= 2;
 	}
 }
 
 Color PNGProperties::GetNextPixel(BitReader& _br)
 {
-	float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
-
 	Color output = Color();
+
+	float sampleMax = powf(2.f, (float)bitDepth) - 1.f;
 
 	switch (colourType)
 	{
@@ -684,4 +565,14 @@ void PNGProperties::ApplyGamma(Color& _color)
 	_color.r = powf(_color.r, gammaPower);
 	_color.g = powf(_color.g, gammaPower);
 	_color.b = powf(_color.b, gammaPower);
+}
+
+void PNGProperties::CheckTRNS(Color& _color)
+{
+	// Any pixel that matches the TRNS color should be treated as fully transparent.
+	if ((colourType == 0 && _color.r == trnsColor.r) ||
+		(colourType == 2 && Color::EqualRGB(_color, trnsColor)))
+	{
+		_color.a = 0;
+	}
 }

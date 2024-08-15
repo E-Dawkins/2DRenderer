@@ -14,37 +14,32 @@ public:
 	void LoadPNG(const char* _filePath);
 
 protected:
-	void CheckSignature(std::ifstream& _reader);
-	void CheckIHDRData();
+	// Chunk handlers
+
 	void Chunk_IHDR(std::ifstream& _reader);
 	void Chunk_PLTE(std::ifstream& _reader, unsigned int _chunkLength);
 	void Chunk_IDAT(std::ifstream& _reader, unsigned int _chunkLength, std::vector<unsigned char>& _data);
 	void Chunk_Ancillary(std::ifstream& _reader, unsigned int _chunkLength, char* _chunkType);
 
-	// Assumes _chunkType is exactly 4-bytes.
-	bool IsAncillaryChunk(const char* _chunkType);
+	// IDAT Flow
 
-	void DecodeIDATData(std::vector<unsigned char>& _rawIDATData);
-
-	// Decompresses concatenated IDAT data into an existing vector.
 	void DecompressIDATData(std::vector<unsigned char>& _compressedData, std::vector<unsigned char>& _decompressedData);
-
-	// Un-filters already decompressed IDAT data.
 	void UnfilterIDATData(std::vector<unsigned char>& _decompressedData);
-
-	// Reads decompressed, un-filtered IDAT data into desired pixel format.
 	void ReadIDATData(std::vector<unsigned char>& _unfiltered);
 
-	// Any pixel that matches the TRNS color should be treated as fully transparent.
-	void CheckTRNS(Color& _color);
+	// Helpers
 
-	bool IsPassValid(unsigned int _pass);
+	void CheckSignature(std::ifstream& _reader);
+	void CheckIHDRData();
+
+	bool IsAncillaryChunk(const char* _chunkType);
 
 	void GetScanlineVars(std::vector<unsigned short>& _scanlineLengths, std::vector<unsigned short>& _startingRows, unsigned int& _totalScanlines);
 
 	Color GetNextPixel(BitReader& _br);
 
 	void ApplyGamma(Color& _color);
+	void CheckTRNS(Color& _color);
 
 public:
 	unsigned int width, height;
@@ -55,8 +50,6 @@ public:
 	std::vector<Color> palette;
 	std::vector<Color> pixels;
 
-	Color backgroundColor;
 	Color trnsColor;
-
 	float gamma;
 };
